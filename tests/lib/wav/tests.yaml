@@ -1,0 +1,14 @@
+common:
+  tags: wav
+  integration_platforms:
+    - native_sim
+
+tests:
+  libraries.wav.mem: {}
+  libraries.wav.max_chunks:
+    extra_configs:
+      - CONFIG_WAV_MAX_CHUNKS=4
+  libraries.wav.log:
+    extra_configs:
+      - CONFIG_LOG=y
+      - CONFIG_WAV_LOG_LEVEL_DBG=y

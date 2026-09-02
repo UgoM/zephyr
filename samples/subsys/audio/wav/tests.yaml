@@ -1,0 +1,17 @@
+sample:
+  name: WAV container parser
+  description: Parse a .wav baked into flash and stream its payload
+tests:
+  sample.subsys.audio.wav:
+    tags: wav
+    integration_platforms:
+      - native_sim
+    harness: console
+    harness_config:
+      type: multi_line
+      ordered: true
+      regex:
+        - "PCM, 1 channel\\(s\\), 8000 Hz, 16-bit"
+        - "payload: 3200 bytes at offset 82, 1600 frames of 2 bytes, 200 ms"
+        - "streamed 3200 bytes in 13 blocks, peak amplitude 26213/32767"
+        - "sample finished"

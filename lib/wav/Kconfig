@@ -1,0 +1,28 @@
+# Copyright (c) 2026 Ugo Marchand
+#
+# SPDX-License-Identifier: Apache-2.0
+
+menuconfig WAV
+	bool "RIFF/WAVE (.wav) container parser"
+	help
+	  Enable the WAV container parser: reads the sample format out of a
+	  .wav header and locates its audio payload. It does not decode,
+	  convert or play anything, and does not depend on any driver.
+
+if WAV
+
+config WAV_MAX_CHUNKS
+	int "Maximum number of RIFF chunks to inspect"
+	default 16
+	range 2 1024
+	help
+	  Give up with -E2BIG once this many chunks have been walked without
+	  finding both the format and the audio payload. Bounds the work a
+	  corrupt or hostile container can cause. Files written by common
+	  encoders hold no more than a handful of chunks.
+
+module = WAV
+module-str = wav
+source "subsys/logging/Kconfig.template.log_config"
+
+endif # WAV

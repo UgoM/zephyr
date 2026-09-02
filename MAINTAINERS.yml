@@ -6449,6 +6449,22 @@ Video Subsystem:
   tests:
     - video
 
+WAV:
+  status: maintained
+  maintainers:
+    - UgoM
+  files:
+    - lib/wav/
+    - include/zephyr/audio/wav.h
+    - tests/lib/wav/
+    - samples/subsys/audio/wav/
+    - doc/services/wav/
+  labels:
+    - "area: WAV"
+  tests:
+    - libraries.wav
+    - sample.subsys.audio.wav
+
 WCH Platforms:
   status: maintained
   maintainers:

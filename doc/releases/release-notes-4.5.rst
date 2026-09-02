@@ -274,6 +274,14 @@ New APIs and options
 
   * :c:struct:`sys_ringq` (see :ref:`fixed_size_ringq_api`)
 
+* WAV
+
+  * :kconfig:option:`CONFIG_WAV` (see :ref:`wav_api`)
+  * :kconfig:option:`CONFIG_WAV_MAX_CHUNKS`
+  * :c:func:`wav_parse`
+  * :c:func:`wav_read`
+  * :c:func:`wav_source_mem_init`
+
 * Zbus
 
   * :kconfig:option:`CONFIG_ZBUS_RUNTIME_CHANNEL_REGISTRATION`
@@ -354,6 +362,7 @@ New Samples
   out-of-window frequency checking on the new :ref:`clock_monitor_api`.
 * ``samples/drivers/clock_monitor/measure_freq`` — demonstrates MEASURE-mode
   one-shot frequency measurement on the new :ref:`clock_monitor_api`.
+* :zephyr:code-sample:`wav`
 
 Libraries / Subsystems
 **********************
@@ -385,6 +394,13 @@ Libraries / Subsystems
 
   * Introducing a video subsystem that inherits all the function names previously in
     video drivers.
+
+* WAV
+
+  * Added the :ref:`wav_api` library, a RIFF/WAVE container parser that reports the sample
+    rate, channel count, sample width and payload extent of a ``.wav`` on the target, so
+    audio no longer has to be converted on a host and shipped as a raw array. Decoding and
+    playback are out of scope.
 
 * Zbus
 

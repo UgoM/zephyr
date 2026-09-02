@@ -12,3 +12,4 @@ including checksums, digital signal processing, and serialization.
    crc/index.rst
    dsp/index.rst
    serialization/index.rst
+   wav/index.rst

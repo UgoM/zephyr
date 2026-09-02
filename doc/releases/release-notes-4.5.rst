@@ -277,10 +277,12 @@ New APIs and options
 * WAV
 
   * :kconfig:option:`CONFIG_WAV` (see :ref:`wav_api`)
+  * :kconfig:option:`CONFIG_WAV_FS`
   * :kconfig:option:`CONFIG_WAV_MAX_CHUNKS`
   * :c:func:`wav_parse`
   * :c:func:`wav_read`
   * :c:func:`wav_source_mem_init`
+  * :c:func:`wav_source_fs_init`
 
 * Zbus
 
@@ -399,8 +401,9 @@ Libraries / Subsystems
 
   * Added the :ref:`wav_api` library, a RIFF/WAVE container parser that reports the sample
     rate, channel count, sample width and payload extent of a ``.wav`` on the target, so
-    audio no longer has to be converted on a host and shipped as a raw array. Decoding and
-    playback are out of scope.
+    audio no longer has to be converted on a host and shipped as a raw array. Containers in
+    flash and containers in a file share one code path; decoding and playback are out of
+    scope.
 
 * Zbus
 

@@ -18,6 +18,10 @@
 
 #include <zephyr/sys/util.h>
 
+#if defined(CONFIG_WAV_FS)
+#include <zephyr/fs/fs.h>
+#endif
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -35,10 +39,10 @@ extern "C" {
  * without decoding, converting or playing anything. The payload is handed back verbatim, so
  * the caller decides what to do with it.
  *
- * The container is accessed through a @ref wav_source, a random-access byte source. A
- * read-only memory buffer binding is provided, and an application may supply its own. Parsing
- * reads only a few tens of bytes of header, never the payload, so a large file is never
- * brought into RAM.
+ * The container is accessed through a @ref wav_source, a random-access byte source. Two
+ * bindings are provided - a read-only memory buffer and, with @kconfig{CONFIG_WAV_FS}, a file
+ * system file - and an application may supply its own. Parsing reads only a few tens of bytes
+ * of header, never the payload, so a large file is never brought into RAM.
  */
 
 /** @brief Smallest container that can be parsed: the `RIFF`/size/`WAVE` preamble. */
@@ -71,9 +75,9 @@ typedef int (*wav_read_cb)(void *user_data, uint32_t off, void *dst, size_t len)
 /**
  * @brief A random-access byte source holding a WAV container.
  *
- * Initialize with wav_source_mem_init(), or populate the fields directly to read from
- * somewhere else. The same source is used by wav_parse() and then by wav_read(), so a
- * playback loop is identical for every kind of source.
+ * Initialize with wav_source_mem_init() or wav_source_fs_init(), or populate the fields
+ * directly to read from somewhere else. The same source is used by wav_parse() and then by
+ * wav_read(), so a playback loop is identical for every kind of source.
  */
 struct wav_source {
 	/** Read callback. Must not be NULL. */
@@ -153,6 +157,27 @@ struct wav_info {
  * @retval -EINVAL @p src or @p buf is NULL, or @p size exceeds `UINT32_MAX`.
  */
 int wav_source_mem_init(struct wav_source *src, const void *buf, size_t size);
+
+#if defined(CONFIG_WAV_FS) || defined(__DOXYGEN__)
+/**
+ * @brief Initialize a byte source reading from an open file.
+ *
+ * @p file must stay open for as long as @p src is used, and must not be seeked or read by
+ * anyone else in the meantime: the source seeks it on every read.
+ *
+ * @param src Source to initialize.
+ * @param file File opened for reading.
+ *
+ * @retval 0 On success.
+ * @retval -EINVAL @p src or @p file is NULL.
+ * @retval -EFBIG The file is larger than `UINT32_MAX` bytes.
+ * @retval -errno Any error reported by fs_seek() or fs_tell(), unchanged. In particular
+ *                `-ENOTSUP` if the file system cannot seek.
+ *
+ * @kconfig_dep{CONFIG_WAV_FS}
+ */
+int wav_source_fs_init(struct wav_source *src, struct fs_file_t *file);
+#endif /* defined(CONFIG_WAV_FS) || defined(__DOXYGEN__) */
 
 /**
  * @brief Parse the header of a WAV container.

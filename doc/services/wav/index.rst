@@ -16,9 +16,9 @@ and applies no output-device policy, which keeps it independent of any audio dri
 a 24-bit eight-channel container is unplayable belongs to the application, which is the only party
 that knows what its hardware accepts.
 
-The audio bytes are reached through a caller-supplied read callback rather than a pointer, so
-anything that can be read at an offset can back a parse and the code path does not change with
-the storage. Header parsing is sparse random access over small windows — 12 bytes of preamble, 8 bytes per chunk header and at
+The audio bytes are reached through a caller-supplied read callback rather than a pointer, so the
+same code path serves a container linked into flash and a container in a file. Header parsing is
+sparse random access over small windows — 12 bytes of preamble, 8 bytes per chunk header and at
 most 40 bytes of format chunk — and never touches the payload.
 
 The container is treated as untrusted input throughout: every declared chunk size is clamped to
@@ -63,6 +63,34 @@ Parsing a container in memory
    printk("%u channel(s), %u Hz, %u-bit, %u ms\n", info.num_channels, info.sample_rate,
           info.bits_per_sample, wav_duration_ms(&info));
 
+Parsing a container in a file
+=============================
+
+With :kconfig:option:`CONFIG_WAV_FS` enabled, an open file works as a source. Only the two lines
+that set the source up differ; everything after them is identical.
+
+.. code-block:: c
+
+   struct fs_file_t file;
+   struct wav_source src;
+   struct wav_info info;
+   int ret;
+
+   fs_file_t_init(&file);
+
+   ret = fs_open(&file, "/lfs/clip.wav", FS_O_READ);
+   if (ret < 0) {
+           return ret;
+   }
+
+   ret = wav_source_fs_init(&src, &file);
+   if (ret == 0) {
+           ret = wav_parse(&src, &info);
+   }
+
+The file must stay open for as long as the source is used: :c:func:`wav_read` seeks and reads
+through it on every call.
+
 Reading the payload
 ===================
 
@@ -106,6 +134,7 @@ Configuration
 Related configuration options:
 
 * :kconfig:option:`CONFIG_WAV`
+* :kconfig:option:`CONFIG_WAV_FS`
 * :kconfig:option:`CONFIG_WAV_MAX_CHUNKS`
 * :kconfig:option:`CONFIG_WAV_LOG_LEVEL`
 

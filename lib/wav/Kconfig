@@ -11,6 +11,13 @@ menuconfig WAV
 
 if WAV
 
+config WAV_FS
+	bool "File system byte source"
+	depends on FILE_SYSTEM
+	help
+	  Provide wav_source_fs_init(), so that a container can be parsed and
+	  streamed straight from an open file instead of a memory buffer.
+
 config WAV_MAX_CHUNKS
 	int "Maximum number of RIFF chunks to inspect"
 	default 16

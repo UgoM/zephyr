@@ -12,3 +12,13 @@ tests:
     extra_configs:
       - CONFIG_LOG=y
       - CONFIG_WAV_LOG_LEVEL_DBG=y
+  libraries.wav.fs:
+    extra_conf_files:
+      - overlay-fs.conf
+    modules:
+      - littlefs
+    platform_allow:
+      - native_sim
+      - native_sim/native/64
+      - nrf52840dk/nrf52840
+      - mps2/an385

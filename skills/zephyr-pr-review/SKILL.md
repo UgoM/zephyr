@@ -1,6 +1,6 @@
 ---
 name: zephyr-pr-review
-description: Use when reviewing Zephyr RTOS pull requests or patches. Spawns parallel subagents that scrutinize code under different lenses: documented conventions, unwritten conventions, and (for ATMEL code) maintainer impersonation. Trigger on commands like "review this PR", "review patch", "check my Zephyr code", or when a PR URL or diff is provided.
+description: Use when reviewing Zephyr RTOS pull requests or patches. Spawns parallel subagents that scrutinize code under different lenses: documented conventions, unwritten conventions, CI compliance checks, and (for ATMEL code) maintainer impersonation. Trigger on commands like "review this PR", "review patch", "check my Zephyr code", or when a PR URL or diff is provided.
 ---
 
 # Zephyr PR Review Skill
@@ -33,20 +33,21 @@ Read the diff and determine:
 
 The lens instructions live in this same folder. Read each lens file and review the diff against it.
 
-**Always apply these two:**
+**Always apply these three:**
 1. `zephyr-conventions.md` — documented coding conventions
 2. `zephyr-unwritten.md` — unwritten codebase patterns
+3. `compliance-check.md` — CI compliance script (check_compliance.py) results
 
 **Conditionally apply (ATMEL only):**
-3. `nandojve-impersonator.md` — only if the diff touches ATMEL/Microchip SAM code (boards/atmel, drivers/*/*sam*, dts/arm/atmel, soc/atmel, or atmel-related Kconfig/DT)
+4. `nandojve-impersonator.md` — only if the diff touches ATMEL/Microchip SAM code (boards/atmel, drivers/*/*sam*, dts/arm/atmel, soc/atmel, or atmel-related Kconfig/DT)
 
 **Conditionally apply (STM32 only):**
-4. `erwango-impersonator.md` — only if the diff touches STM32 platform code (boards/st/, dts/arm/st/, soc/st/stm32/, or stm32-related Kconfig/DT)
-5. `FRASTM-impersonator.md` — only if the diff touches STM32 drivers (drivers/*/*stm32*, drivers/clock_control/*stm32*, drivers/pinctrl/*stm32*)
-6. `gautierg-st-impersonator.md` — only if the diff touches STM32 SoC Kconfig, DT bindings, or clock/pinctrl drivers
-7. `djiatsaf-st-impersonator.md` — only if the diff touches STM32 board DTS, test overlays, or board defconfigs
-8. `mathieuchopstm-impersonator.md` — only if the diff touches STM32 SoC-level DTSI, SoC Kconfig, or HAL integration
-9. `GeorgeCGV-impersonator.md` — only if the diff touches STM32 drivers (USB, flash, SDHC, SPI, I2C, video, Ethernet)
+5. `erwango-impersonator.md` — only if the diff touches STM32 platform code (boards/st/, dts/arm/st/, soc/st/stm32/, or stm32-related Kconfig/DT)
+6. `FRASTM-impersonator.md` — only if the diff touches STM32 drivers (drivers/*/*stm32*, drivers/clock_control/*stm32*, drivers/pinctrl/*stm32*)
+7. `gautierg-st-impersonator.md` — only if the diff touches STM32 SoC Kconfig, DT bindings, or clock/pinctrl drivers
+8. `djiatsaf-st-impersonator.md` — only if the diff touches STM32 board DTS, test overlays, or board defconfigs
+9. `mathieuchopstm-impersonator.md` — only if the diff touches STM32 SoC-level DTSI, SoC Kconfig, or HAL integration
+10. `GeorgeCGV-impersonator.md` — only if the diff touches STM32 drivers (USB, flash, SDHC, SPI, I2C, video, Ethernet)
 
 For each lens, review the full diff, the file paths changed, the subsystem context, and any PR metadata (title, description, author).
 
@@ -55,10 +56,11 @@ For each lens, review the full diff, the file paths changed, the subsystem conte
 Combine the findings from every lens into a single review with:
 
 1. **Critical Issues** — blocking problems from any agent (must fix)
-2. **Convention Issues** — documented and unwritten convention violations (should fix)
-3. **Maintainer Notes** — if ATMEL, include nandojve's perspective; if STM32, include the applicable reviewer personas' perspectives (advisory)
-4. **Positive Notes** — things done well
-5. **Summary** — overall assessment and recommendation
+2. **Compliance Failures** — CI check failures that will block merge (from `compliance-check`)
+3. **Convention Issues** — documented and unwritten convention violations (should fix)
+4. **Maintainer Notes** — if ATMEL, include nandojve's perspective; if STM32, include the applicable reviewer personas' perspectives (advisory)
+5. **Positive Notes** — things done well
+6. **Summary** — overall assessment and recommendation
 
 Deduplicate findings across agents. If multiple agents flag the same issue, mention it once with the strongest framing.
 
@@ -73,7 +75,13 @@ Present the review in this format:
 > [!CAUTION]
 > Issues that will likely cause CI failure or functional bugs.
 
-- **[file:line]** Description (`conventions` / `unwritten` / `maintainer`)
+- **[file:line]** Description (`conventions` / `unwritten` / `maintainer` / `compliance`)
+
+### Compliance Failures
+> [!CAUTION]
+> Automated check failures from `check_compliance.py` that will block CI.
+
+- **[file:line]** `CheckName`: Description (`compliance`)
 
 ### Convention Violations
 > [!WARNING]
@@ -99,6 +107,7 @@ Present the review in this format:
 The review lenses live next to this skill, in the same folder (peer sub-skills, not registered agents):
 - `zephyr-conventions.md` — documented conventions lens
 - `zephyr-unwritten.md` — unwritten patterns lens
+- `compliance-check.md` — CI compliance script lens (always applied)
 - `nandojve-impersonator.md` — ATMEL maintainer lens (SAM/Atmel only)
 - `erwango-impersonator.md` — STM32 platform reviewer lens (STM32 platform/DTS/SoC)
 - `FRASTM-impersonator.md` — STM32 driver reviewer lens (drivers/*stm32*)

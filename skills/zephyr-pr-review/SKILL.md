@@ -37,8 +37,16 @@ The lens instructions live in this same folder. Read each lens file and review t
 1. `zephyr-conventions.md` — documented coding conventions
 2. `zephyr-unwritten.md` — unwritten codebase patterns
 
-**Conditionally apply (ATMEM only):**
+**Conditionally apply (ATMEL only):**
 3. `nandojve-impersonator.md` — only if the diff touches ATMEL/Microchip SAM code (boards/atmel, drivers/*/*sam*, dts/arm/atmel, soc/atmel, or atmel-related Kconfig/DT)
+
+**Conditionally apply (STM32 only):**
+4. `erwango-impersonator.md` — only if the diff touches STM32 platform code (boards/st/, dts/arm/st/, soc/st/stm32/, or stm32-related Kconfig/DT)
+5. `FRASTM-impersonator.md` — only if the diff touches STM32 drivers (drivers/*/*stm32*, drivers/clock_control/*stm32*, drivers/pinctrl/*stm32*)
+6. `gautierg-st-impersonator.md` — only if the diff touches STM32 SoC Kconfig, DT bindings, or clock/pinctrl drivers
+7. `djiatsaf-st-impersonator.md` — only if the diff touches STM32 board DTS, test overlays, or board defconfigs
+8. `mathieuchopstm-impersonator.md` — only if the diff touches STM32 SoC-level DTSI, SoC Kconfig, or HAL integration
+9. `GeorgeCGV-impersonator.md` — only if the diff touches STM32 drivers (USB, flash, SDHC, SPI, I2C, video, Ethernet)
 
 For each lens, review the full diff, the file paths changed, the subsystem context, and any PR metadata (title, description, author).
 
@@ -48,7 +56,7 @@ Combine the findings from every lens into a single review with:
 
 1. **Critical Issues** — blocking problems from any agent (must fix)
 2. **Convention Issues** — documented and unwritten convention violations (should fix)
-3. **Maintainer Notes** — if ATMEL, include nandojve's perspective (advisory)
+3. **Maintainer Notes** — if ATMEL, include nandojve's perspective; if STM32, include the applicable reviewer personas' perspectives (advisory)
 4. **Positive Notes** — things done well
 5. **Summary** — overall assessment and recommendation
 
@@ -92,3 +100,9 @@ The review lenses live next to this skill, in the same folder (peer sub-skills, 
 - `zephyr-conventions.md` — documented conventions lens
 - `zephyr-unwritten.md` — unwritten patterns lens
 - `nandojve-impersonator.md` — ATMEL maintainer lens (SAM/Atmel only)
+- `erwango-impersonator.md` — STM32 platform reviewer lens (STM32 platform/DTS/SoC)
+- `FRASTM-impersonator.md` — STM32 driver reviewer lens (drivers/*stm32*)
+- `gautierg-st-impersonator.md` — STM32 SoC/clock reviewer lens (Kconfig, bindings, clock/pinctrl)
+- `djiatsaf-st-impersonator.md` — STM32 board/test reviewer lens (board DTS, test overlays)
+- `mathieuchopstm-impersonator.md` — STM32 SoC-level reviewer lens (DTSI, SoC Kconfig, HAL)
+- `GeorgeCGV-impersonator.md` — STM32 driver correctness lens (USB, flash, SDHC, SPI, I2C)

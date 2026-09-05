@@ -10,6 +10,9 @@ on:
     - v*-branch
     paths:
     - 'scripts/pylib/build_helpers/**'
+    - 'scripts/tracing/**'
+    - 'scripts/tests/tracing/**'
+    - 'subsys/tracing/**'
     - '.github/workflows/pylib_tests.yml'
   pull_request:
     branches:
@@ -17,6 +20,8 @@ on:
     - v*-branch
     paths:
     - 'scripts/pylib/build_helpers/**'
+    - 'scripts/tracing/**'
+    - 'scripts/tests/tracing/**'
     - '.github/workflows/pylib_tests.yml'
 
 permissions:
@@ -58,3 +63,8 @@ jobs:
       run: |
         echo "Run build_helpers tests"
         PYTHONPATH=./scripts/tests pytest ./scripts/tests/build_helpers
+
+    - name: Run pytest for tracing scripts
+      run: |
+        echo "Run tracing script tests"
+        pytest ./scripts/tests/tracing

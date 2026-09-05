@@ -1,0 +1,68 @@
+#!/usr/bin/env python3
+#
+# SPDX-FileCopyrightText: Copyright The Zephyr Project Contributors
+#
+# SPDX-License-Identifier: Apache-2.0
+"""Fixtures for the scripts/tracing tests.
+
+Traces are encoded from the tracing subsystem's own TSDL metadata, so the event
+ids and field layouts under test are the ones a Zephyr build emits. The tracing
+scripts are standalone files rather than an installable package, so the
+directory holding them is put on ``sys.path`` before the tests import them.
+"""
+
+import os
+import shutil
+import struct
+import sys
+
+import pytest
+
+ZEPHYR_BASE = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", ".."))
+sys.path.insert(0, os.path.join(ZEPHYR_BASE, "scripts", "tracing"))
+
+import trace_viewer  # noqa: E402
+
+TSDL_METADATA = os.path.join(ZEPHYR_BASE, "subsys", "tracing", "ctf", "tsdl", "metadata")
+
+
+class TraceBuilder:
+    """Build a CTF stream the way the CTF backend writes one."""
+
+    def __init__(self, defs):
+        self._defs = {edef.name: edef for edef in defs.values()}
+        self.data = b""
+
+    def event(self, ts, name, /, **fields):
+        """Append the ``name`` event, timestamped ``ts`` ns, carrying ``fields``.
+
+        ``ts`` and ``name`` are positional-only so that a CTF field of the same
+        name, such as the thread name, can be passed as a keyword.
+        """
+        edef = self._defs[name]
+        payload = b""
+        for fname, kind in edef.fields:
+            value = fields.pop(fname)
+            if isinstance(kind, tuple):
+                encoded = value.encode()
+                assert len(encoded) < kind[1], f"{value!r} does not fit in {name}.{fname}"
+                payload += encoded.ljust(kind[1], b"\x00")
+            else:
+                payload += struct.pack("<" + kind, value)
+        assert not fields, f"{name} has no field {sorted(fields)}"
+        self.data += trace_viewer.HDR.pack(ts, edef.eid) + payload
+        return self
+
+
+@pytest.fixture
+def metadata_file(tmp_path):
+    """The tracing subsystem's TSDL metadata, in a directory of its own."""
+    path = tmp_path / "metadata"
+    shutil.copyfile(TSDL_METADATA, path)
+    return path
+
+
+@pytest.fixture
+def event_defs(metadata_file):
+    """The {event id: EventDef} table the metadata describes."""
+    return trace_viewer.parse_metadata(str(metadata_file))

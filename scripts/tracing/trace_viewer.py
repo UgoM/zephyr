@@ -491,12 +491,32 @@ class TraceReader:
         self._add_provisional()
         return new
 
+    def finalize_open_segments(self):
+        """Close the still-open running and ISR spans to the last timestamp.
+
+        Called on the batch path, once the whole trace has been fed and no more
+        data will arrive. A thread that was switched in, and a nested ISR that
+        was never exited, are still running, so their spans extend to the last
+        timestamp instead of disappearing from the timeline. The live paths
+        leave them open and re-derive them on each feed instead.
+        """
+        last = self.tr.t1
+        if self._cur_tid is not None and self._seg_start is not None and last > self._seg_start:
+            self.tr.segments.append((self._seg_start, last, self._cur_tid))
+            self._cur_tid = None
+            self._seg_start = None
+        if self._isr_start is not None and last > self._isr_start:
+            self.tr.isr_spans.append((self._isr_start, last))
+            self._isr_start = None
+            self._isr_depth = 0
+
 
 def parse_trace(path, defs, has_ts=True):
     """Read a complete trace file in one shot (non-live path)."""
     reader = TraceReader(defs, has_ts)
     with safe_open(path, "rb") as fh:
         reader.feed(fh.read())
+    reader.finalize_open_segments()
     return reader.tr
 
 

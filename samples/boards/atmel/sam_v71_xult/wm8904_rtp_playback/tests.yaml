@@ -1,0 +1,17 @@
+sample:
+  name: WM8904 RTP playback
+  description: Play an RTP audio stream from the network through the WM8904 codec
+tests:
+  sample.boards.sam_v71_xult.wm8904_rtp_playback:
+    build_only: true
+    tags:
+      - audio
+      - net
+      - rtp
+    depends_on:
+      - i2s
+      - netif
+    platform_allow:
+      - sam_v71_xult/samv71q21b
+    integration_platforms:
+      - sam_v71_xult/samv71q21b

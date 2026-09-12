@@ -60,6 +60,15 @@ The lens instructions live in this same folder. Read each lens file and review t
 16. `TomasBarakNXP-impersonator.md` — only if the diff touches audio code, or any NXP board/driver that carries an audio codec node
 17. `kartben-impersonator.md` — advisory, whenever the diff touches DT bindings, Kconfig help text, doc/, samples/, boards/, or any new driver; he reviews across the whole tree
 
+**Conditionally apply (DMA only):**
+18. `mcuxted-impersonator.md` — only if the diff touches DMA code (drivers/dma/, tests/drivers/dma/, dts/bindings/dma/, include/zephyr/drivers/dma/)
+19. `teburd-impersonator.md` — also covers DMA as the DMA maintainer (teburd; DMA files above), though his primary persona lens is tracing
+
+**Conditionally apply (I2S only):**
+20. `anangl-impersonator.md` — only if the diff touches I2S code (drivers/i2s/, dts/bindings/i2s/, include/zephyr/drivers/i2s.h, tests/drivers/i2s/, samples/drivers/i2s/)
+21. `Peterson-Brett-impersonator.md` — only if the diff touches I2S or audio code (same I2S paths plus drivers/audio/)
+22. `mariopaja-impersonator.md` — only if the diff touches I2S drivers, I2S bindings, or audio codecs (same I2S paths plus drivers/audio/, especially STM32 SAI and WM8904)
+
 For each lens, review the full diff, the file paths changed, the subsystem context, and any PR metadata (title, description, author).
 
 ### Step 4: Collect and synthesize
@@ -70,7 +79,7 @@ Combine the findings from every lens into a single review with:
 2. **Compliance Failures** — CI check failures that will block merge (from `compliance-check`)
 3. **Upstream Reference Leaks** — `#NNNNN` autolinks that will notify an unrelated upstream thread (from `upstream-reference-check`); blocking before push, unfixable after
 4. **Convention Issues** — documented and unwritten convention violations (should fix)
-5. **Maintainer Notes** — include the perspective of every impersonator lens that fired: nandojve for ATMEL, the ST reviewers for STM32, nashif and teburd for tracing, the audio reviewers for drivers/audio, kartben where he applies (advisory)
+5. **Maintainer Notes** — include the perspective of every impersonator lens that fired: nandojve for ATMEL, the ST reviewers for STM32, nashif and teburd for tracing, the audio reviewers for drivers/audio, mcuxted for drivers/dma, anangl/Peterson-Brett/mariopaja/TomasBarakNXP for I2S, kartben where he applies (advisory)
 6. **Positive Notes** — things done well
 7. **Summary** — overall assessment and recommendation
 
@@ -139,4 +148,8 @@ The review lenses live next to this skill, in the same folder (peer sub-skills, 
 - `rriveramcrus-impersonator.md` — audio collaborator lens (drivers/audio)
 - `rgallaispou-impersonator.md` — audio codec/DMIC reviewer lens (drivers/audio)
 - `TomasBarakNXP-impersonator.md` — NXP audio reviewer lens (drivers/audio, NXP boards)
+- `mcuxted-impersonator.md` — DMA collaborator lens (drivers/dma, DMA tests/bindings)
+- `anangl-impersonator.md` — I2S reviewer lens (drivers/i2s, I2S tests/bindings)
+- `Peterson-Brett-impersonator.md` — I2S/audio reviewer lens (drivers/i2s, drivers/audio)
+- `mariopaja-impersonator.md` — I2S/audio codec reviewer lens (drivers/i2s, drivers/audio)
 - `kartben-impersonator.md` — tree-wide style/DT/doc reviewer lens (advisory)

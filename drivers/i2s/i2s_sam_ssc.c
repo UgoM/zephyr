@@ -77,6 +77,8 @@ struct stream {
 	bool last_block;
 	struct i2s_config cfg;
 	struct sys_ringq mem_block_queue;
+	/* TX only: blocks handed to the DMA ring, awaiting completion. */
+	struct sys_ringq in_flight_queue;
 	void *mem_block;
 	int (*stream_start)(struct stream *, Ssc *const,
 			    const struct device *);
@@ -93,6 +95,7 @@ struct i2s_sam_dev_data {
 	struct stream tx;
 	uint8_t rx_buffer[sizeof(struct queue_item) * CONFIG_I2S_SAM_SSC_RX_BLOCK_COUNT];
 	uint8_t tx_buffer[sizeof(struct queue_item) * CONFIG_I2S_SAM_SSC_TX_BLOCK_COUNT];
+	uint8_t tx_inflight_buffer[sizeof(struct queue_item) * CONFIG_I2S_SAM_SSC_TX_BLOCK_COUNT];
 };
 
 #define MODULO_INC(val, max) { val = (++val < max) ? val : 0; }
@@ -118,6 +121,24 @@ static int queue_get(struct sys_ringq *f, void **mem_block, size_t *size)
 
 	key = irq_lock();
 	rc = sys_ringq_get(f, &item);
+
+	*mem_block = item.mem_block;
+	*size = item.size;
+	irq_unlock(key);
+	return rc;
+}
+
+/*
+ * Peek at the oldest item without removing it
+ */
+static int queue_peek_front(struct sys_ringq *f, void **mem_block, size_t *size)
+{
+	int rc;
+	unsigned int key;
+	struct queue_item item;
+
+	key = irq_lock();
+	rc = sys_ringq_peek(f, &item);
 
 	*mem_block = item.mem_block;
 	*size = item.size;
@@ -181,6 +202,47 @@ static int start_dma(const struct device *dev_dma, uint32_t channel,
 	ret = dma_start(dev_dma, channel);
 
 	return ret;
+}
+
+/*
+ * Move pending TX blocks into the cyclic DMA ring. The controller keeps
+ * streaming from the ring while this refills it, so a late refill only costs
+ * ring depth instead of the holding-register deadline of a single-block DMA.
+ */
+static int tx_dma_fill(const struct device *dev_dma, struct stream *stream,
+		       Ssc *const ssc)
+{
+	void *mem_block;
+	size_t size;
+	int ret;
+
+	while (queue_peek_front(&stream->mem_block_queue, &mem_block, &size) == 0) {
+		/* Assure cache coherency before DMA read operation */
+		DCACHE_CLEAN(mem_block, size);
+
+		ret = dma_reload(dev_dma, stream->dma_channel, (uint32_t)mem_block,
+				 (uint32_t)&(ssc->SSC_THR), size);
+		if (ret == -ENOBUFS) {
+			/*
+			 * DMA ring full: leave the block queued and refill it
+			 * once a completion drains a slot. Turning a transient
+			 * backlog here into a stream error would make playback
+			 * depend on CONFIG_I2S_SAM_SSC_TX_BLOCK_COUNT staying
+			 * below the DMA ring depth.
+			 */
+			break;
+		}
+		if (ret < 0) {
+			return ret;
+		}
+
+		/* Commit the pop now that the block is safely in the ring */
+		__ASSERT_NO_MSG(queue_get(&stream->mem_block_queue,
+					   &mem_block, &size) == 0);
+		queue_put(&stream->in_flight_queue, mem_block, size);
+	}
+
+	return 0;
 }
 
 /* This function is executed in the interrupt context */
@@ -252,15 +314,24 @@ static void dma_tx_callback(const struct device *dma_dev, void *user_data,
 	struct i2s_sam_dev_data *const dev_data = dev->data;
 	Ssc *const ssc = dev_cfg->regs;
 	struct stream *stream = &dev_data->tx;
-	size_t mem_block_size;
+	void *mem_block;
+	size_t size;
 	int ret;
 
 	ARG_UNUSED(user_data);
-	__ASSERT_NO_MSG(stream->mem_block != NULL);
 
-	/* All block data sent */
-	k_mem_slab_free(stream->cfg.mem_slab, stream->mem_block);
-	stream->mem_block = NULL;
+	/* Free the completed block and let a producer queue another. */
+	if (queue_get(&stream->in_flight_queue, &mem_block, &size) == 0) {
+		k_mem_slab_free(stream->cfg.mem_slab, mem_block);
+		k_sem_give(&stream->sem);
+	}
+
+	/* Stop transmission if the DMA reported a bus error */
+	if (status != 0) {
+		LOG_ERR("TX DMA transfer error: %d", status);
+		stream->state = I2S_STATE_ERROR;
+		goto tx_disable;
+	}
 
 	/* Stop transmission if there was an error */
 	if (stream->state == I2S_STATE_ERROR) {
@@ -274,27 +345,21 @@ static void dma_tx_callback(const struct device *dma_dev, void *user_data,
 		goto tx_disable;
 	}
 
-	/* Prepare to send the next data block */
-	ret = queue_get(&stream->mem_block_queue, &stream->mem_block,
-			&mem_block_size);
+	/* Keep the ring full from pending writes */
+	ret = tx_dma_fill(dev_cfg->dev_dma, stream, ssc);
 	if (ret < 0) {
+		LOG_DBG("Failed to reload TX DMA transfer: %d", ret);
+		stream->state = I2S_STATE_ERROR;
+		goto tx_disable;
+	}
+
+	/* Ring drained: a clean drain ends transmission, otherwise underrun */
+	if (sys_ringq_empty(&stream->in_flight_queue)) {
 		if (stream->state == I2S_STATE_STOPPING) {
 			stream->state = I2S_STATE_READY;
 		} else {
 			stream->state = I2S_STATE_ERROR;
 		}
-		goto tx_disable;
-	}
-	k_sem_give(&stream->sem);
-
-	/* Assure cache coherency before DMA read operation */
-	DCACHE_CLEAN(stream->mem_block, mem_block_size);
-
-	ret = reload_dma(dev_cfg->dev_dma, stream->dma_channel,
-			 stream->mem_block, (void *)&(ssc->SSC_THR),
-			 mem_block_size);
-	if (ret < 0) {
-		LOG_DBG("Failed to reload TX DMA transfer: %d", ret);
 		goto tx_disable;
 	}
 
@@ -662,15 +727,14 @@ static int rx_stream_start(struct stream *stream, Ssc *const ssc,
 static int tx_stream_start(struct stream *stream, Ssc *const ssc,
 			   const struct device *dev_dma)
 {
+	void *mem_block;
 	size_t mem_block_size;
 	int ret;
 
-	ret = queue_get(&stream->mem_block_queue, &stream->mem_block,
-			&mem_block_size);
+	ret = queue_get(&stream->mem_block_queue, &mem_block, &mem_block_size);
 	if (ret < 0) {
 		return ret;
 	}
-	k_sem_give(&stream->sem);
 
 	/* Workaround for a hardware bug: DMA engine will transfer first data
 	 * item even if SSC_SR.TXEN (Transmit Enable) is not set. An extra write
@@ -687,17 +751,29 @@ static int tx_stream_start(struct stream *stream, Ssc *const ssc,
 		.channel_direction = MEMORY_TO_PERIPHERAL,
 		.source_burst_length = 1,
 		.dest_burst_length = 1,
+		.complete_callback_en = 1,
+		.cyclic = 1,
 		.dma_callback = dma_tx_callback,
 	};
 
 	/* Assure cache coherency before DMA read operation */
-	DCACHE_CLEAN(stream->mem_block, mem_block_size);
+	DCACHE_CLEAN(mem_block, mem_block_size);
 
 	ret = start_dma(dev_dma, stream->dma_channel, &dma_cfg,
-			stream->mem_block, (void *)&(ssc->SSC_THR),
-			mem_block_size);
+			mem_block, (void *)&(ssc->SSC_THR), mem_block_size);
 	if (ret < 0) {
 		LOG_ERR("Failed to start TX DMA transfer: %d", ret);
+		k_mem_slab_free(stream->cfg.mem_slab, mem_block);
+		k_sem_give(&stream->sem);
+		return ret;
+	}
+	queue_put(&stream->in_flight_queue, mem_block, mem_block_size);
+
+	/* Prime the rest of the ring from already queued blocks */
+	ret = tx_dma_fill(dev_dma, stream, ssc);
+	if (ret < 0) {
+		LOG_ERR("Failed to prime TX DMA transfer: %d", ret);
+		tx_stream_disable(stream, ssc, dev_dma);
 		return ret;
 	}
 
@@ -726,12 +802,17 @@ static void rx_stream_disable(struct stream *stream, Ssc *const ssc,
 static void tx_stream_disable(struct stream *stream, Ssc *const ssc,
 			      const struct device *dev_dma)
 {
+	void *mem_block;
+	size_t size;
+
 	ssc->SSC_CR = SSC_CR_TXDIS;
 	ssc->SSC_IDR = SSC_IDR_TXEMPTY;
 	dma_stop(dev_dma, stream->dma_channel);
-	if (stream->mem_block != NULL) {
-		k_mem_slab_free(stream->cfg.mem_slab, stream->mem_block);
-		stream->mem_block = NULL;
+
+	/* Release blocks still held by the DMA ring */
+	while (queue_get(&stream->in_flight_queue, &mem_block, &size) == 0) {
+		k_mem_slab_free(stream->cfg.mem_slab, mem_block);
+		k_sem_give(&stream->sem);
 	}
 }
 
@@ -1019,6 +1100,8 @@ static struct i2s_sam_dev_data i2s0_sam_data = {
 		.dma_channel = DT_INST_DMAS_CELL_BY_NAME(0, tx, channel),
 		.dma_perid = DT_INST_DMAS_CELL_BY_NAME(0, tx, perid),
 		.mem_block_queue = SYS_RINGQ_INIT(i2s0_sam_data.tx_buffer,
+			sizeof(struct queue_item), CONFIG_I2S_SAM_SSC_TX_BLOCK_COUNT),
+		.in_flight_queue = SYS_RINGQ_INIT(i2s0_sam_data.tx_inflight_buffer,
 			sizeof(struct queue_item), CONFIG_I2S_SAM_SSC_TX_BLOCK_COUNT),
 		.stream_start = tx_stream_start,
 		.stream_disable = tx_stream_disable,

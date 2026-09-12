@@ -16,6 +16,7 @@
 #include <zephyr/init.h>
 #include <string.h>
 #include <soc.h>
+#include <zephyr/cache.h>
 #include <zephyr/drivers/dma.h>
 #include <zephyr/drivers/clock_control/atmel_sam_pmc.h>
 #include "dma_sam_xdmac.h"
@@ -27,6 +28,16 @@ LOG_MODULE_REGISTER(dma_sam_xdmac);
 
 #define XDMAC_INT_ERR (XDMAC_CIE_RBIE | XDMAC_CIE_WBIE | XDMAC_CIE_ROIE)
 #define DMA_CHANNELS_MAX 31
+
+/*
+ * View-1 descriptors are 16 bytes; a 32-byte aligned pool keeps every
+ * descriptor within a single Cortex-M7 cache line so a range flush publishes
+ * it atomically to the controller.
+ */
+#define XDMAC_LLI_ALIGN 32
+
+/* Staging area for the closing descriptor's single-word transfer. */
+static uint32_t sam_xdmac_stop_word;
 
 enum dma_state {
 	DMA_STATE_INIT = 0,
@@ -41,6 +52,14 @@ struct sam_xdmac_channel_cfg {
 	dma_callback_t callback;
 	uint32_t data_size;
 	enum dma_state state;
+	/* Cyclic (linked-list) transfer bookkeeping */
+	uint32_t periph_addr;
+	bool cyclic;
+	bool periph_is_src;
+	uint8_t desc_count;
+	uint8_t write_idx;
+	uint8_t read_idx;
+	uint8_t outstanding;
 };
 
 /* Device constant configuration parameters */
@@ -48,6 +67,8 @@ struct sam_xdmac_dev_cfg {
 	Xdmac *regs;
 	void (*irq_config)(void);
 	const struct atmel_sam_pmc_config clock_cfg;
+	struct sam_xdmac_linked_list_desc_view1 *lli_pool;
+	uint8_t lli_queue_size;
 	uint8_t irq_id;
 };
 
@@ -56,6 +77,77 @@ struct sam_xdmac_dev_data {
 	struct dma_context dma_ctx;
 	struct sam_xdmac_channel_cfg dma_channels[DMA_CHANNELS_MAX + 1];
 };
+
+static struct sam_xdmac_linked_list_desc_view1 *sam_xdmac_lli(
+	const struct device *dev, uint32_t channel, uint8_t idx)
+{
+	const struct sam_xdmac_dev_cfg *const dev_cfg = dev->config;
+
+	return &dev_cfg->lli_pool[channel * dev_cfg->lli_queue_size + idx];
+}
+
+/* Turn a ring slot into a closing descriptor that halts the controller at it. */
+static void sam_xdmac_lli_close(const struct device *dev, uint32_t channel,
+				uint8_t idx)
+{
+	struct sam_xdmac_dev_data *const dev_data = dev->data;
+	struct sam_xdmac_channel_cfg *chan = &dev_data->dma_channels[channel];
+	struct sam_xdmac_linked_list_desc_view1 *desc =
+		sam_xdmac_lli(dev, channel, idx);
+
+	if (chan->periph_is_src) {
+		desc->mbr_sa = chan->periph_addr;
+		desc->mbr_da = (uint32_t)&sam_xdmac_stop_word;
+	} else {
+		/*
+		 * Route the closing transfer to RAM instead of the peripheral:
+		 * a memory-to-peripheral closing descriptor would otherwise
+		 * write one stray sample to the device after the last real one
+		 * whenever the ring drains.
+		 */
+		desc->mbr_sa = (uint32_t)&sam_xdmac_stop_word;
+		desc->mbr_da = (uint32_t)&sam_xdmac_stop_word;
+	}
+	desc->mbr_ubc = XDMA_UBC_NVIEW_NDV1 | XDMA_UBC_NSEN_UPDATED
+		      | XDMA_UBC_NDEN_UPDATED | XDMA_UBC_NDE_FETCH_DIS | 1U;
+	sys_cache_data_flush_range(desc, sizeof(*desc));
+}
+
+/* Append a data block to the ring, chaining the controller past the tail. */
+static int sam_xdmac_lli_append(const struct device *dev, uint32_t channel,
+				uint32_t src, uint32_t dst, uint32_t ublen)
+{
+	struct sam_xdmac_dev_data *const dev_data = dev->data;
+	struct sam_xdmac_channel_cfg *chan = &dev_data->dma_channels[channel];
+	struct sam_xdmac_linked_list_desc_view1 *desc;
+	unsigned int key;
+
+	key = irq_lock();
+
+	/*
+	 * One slot stays closed so the controller can never run past the
+	 * tail; when the ring is full, -ENOBUFS tells the caller to try
+	 * again once a block completes.
+	 */
+	if (chan->outstanding >= chan->desc_count - 1U) {
+		irq_unlock(key);
+		return -ENOBUFS;
+	}
+
+	desc = sam_xdmac_lli(dev, channel, chan->write_idx);
+	desc->mbr_sa = src;
+	desc->mbr_da = dst;
+	desc->mbr_ubc = XDMA_UBC_NVIEW_NDV1 | XDMA_UBC_NSEN_UPDATED
+		      | XDMA_UBC_NDEN_UPDATED | XDMA_UBC_NDE_FETCH_EN | ublen;
+	sys_cache_data_flush_range(desc, sizeof(*desc));
+
+	chan->write_idx = (chan->write_idx + 1U) % chan->desc_count;
+	chan->outstanding++;
+
+	irq_unlock(key);
+
+	return 0;
+}
 
 static void sam_xdmac_isr(const struct device *dev)
 {
@@ -76,14 +168,55 @@ static void sam_xdmac_isr(const struct device *dev)
 			continue;
 		}
 
-		dev_data->dma_channels[channel].state = DMA_STATE_CONFIGURED;
 		channel_cfg = &dev_data->dma_channels[channel];
 
 		/* Get channel errors */
 		err = xdmac->XDMAC_CHID[channel].XDMAC_CIS & XDMAC_INT_ERR;
 
+		if (channel_cfg->cyclic) {
+			/*
+			 * Report a bus error even when the ring is idle: the
+			 * client must stop the channel instead of waiting for
+			 * completions from a ring that halted with an error.
+			 */
+			if (err != 0) {
+				if (channel_cfg->callback != NULL) {
+					channel_cfg->callback(dev, channel_cfg->user_data,
+							      channel, err);
+				}
+				continue;
+			}
+
+			/*
+			 * A completion with no outstanding block is the closing
+			 * descriptor's stop word after a drain; suppress it so
+			 * the client sees exactly one callback per data block.
+			 */
+			if (channel_cfg->outstanding == 0U) {
+				continue;
+			}
+
+			/*
+			 * The controller has already advanced past the oldest
+			 * block, so re-close its slot to halt cleanly should the
+			 * ring wrap before the next refill.
+			 */
+			sam_xdmac_lli_close(dev, channel, channel_cfg->read_idx);
+			channel_cfg->read_idx =
+				(channel_cfg->read_idx + 1U) % channel_cfg->desc_count;
+			channel_cfg->outstanding--;
+
+			if (channel_cfg->callback != NULL) {
+				channel_cfg->callback(dev, channel_cfg->user_data,
+						      channel, err);
+			}
+			continue;
+		}
+
+		channel_cfg->state = DMA_STATE_CONFIGURED;
+
 		/* Execute callback */
-		if (channel_cfg->callback) {
+		if (channel_cfg->callback != NULL) {
 			channel_cfg->callback(dev, channel_cfg->user_data,
 					      channel, err);
 		}
@@ -194,6 +327,54 @@ int sam_xdmac_transfer_configure(const struct device *dev, uint32_t channel,
 	return 0;
 }
 
+static int sam_xdmac_cyclic_setup(const struct device *dev, uint32_t channel,
+				  struct dma_config *cfg)
+{
+	const struct sam_xdmac_dev_cfg *const dev_cfg = dev->config;
+	struct sam_xdmac_dev_data *const dev_data = dev->data;
+	struct sam_xdmac_channel_cfg *chan = &dev_data->dma_channels[channel];
+	struct sam_xdmac_transfer_config transfer_cfg;
+	struct dma_block_config *block = cfg->head_block;
+	int ret;
+
+	chan->desc_count = dev_cfg->lli_queue_size;
+	chan->write_idx = 0U;
+	chan->read_idx = 0U;
+	chan->outstanding = 0U;
+	chan->periph_is_src = (cfg->channel_direction == PERIPHERAL_TO_MEMORY);
+	chan->periph_addr = chan->periph_is_src ? block->source_address
+						: block->dest_address;
+
+	/* Circularly link the ring and close every slot. */
+	for (uint8_t i = 0U; i < chan->desc_count; i++) {
+		uint8_t next = (i + 1U) % chan->desc_count;
+
+		sam_xdmac_lli(dev, channel, i)->mbr_nda =
+			(uint32_t)sam_xdmac_lli(dev, channel, next);
+		sam_xdmac_lli_close(dev, channel, i);
+	}
+
+	/* Prime the ring with the initial block chain. */
+	while (block != NULL) {
+		ret = sam_xdmac_lli_append(dev, channel, block->source_address,
+					   block->dest_address,
+					   block->block_size >> chan->data_size);
+		if (ret < 0) {
+			return ret;
+		}
+		block = block->next_block;
+	}
+
+	(void)memset(&transfer_cfg, 0, sizeof(transfer_cfg));
+	transfer_cfg.nda = (uint32_t)sam_xdmac_lli(dev, channel, 0);
+	transfer_cfg.ndc = XDMAC_CNDC_NDE_DSCR_FETCH_EN
+			 | XDMAC_CNDC_NDSUP_SRC_PARAMS_UPDATED
+			 | XDMAC_CNDC_NDDUP_DST_PARAMS_UPDATED
+			 | XDMAC_CNDC_NDVIEW_NDV1;
+
+	return sam_xdmac_transfer_configure(dev, channel, &transfer_cfg);
+}
+
 static int sam_xdmac_config(const struct device *dev, uint32_t channel,
 			    struct dma_config *cfg)
 {
@@ -225,7 +406,7 @@ static int sam_xdmac_config(const struct device *dev, uint32_t channel,
 		return -EINVAL;
 	}
 
-	if (cfg->block_count != 1U) {
+	if (!cfg->cyclic && cfg->block_count != 1U) {
 		LOG_ERR("Only single block transfer is currently supported."
 			    " Please submit a patch.");
 		return -EINVAL;
@@ -307,6 +488,11 @@ static int sam_xdmac_config(const struct device *dev, uint32_t channel,
 
 	dev_data->dma_channels[channel].callback = cfg->dma_callback;
 	dev_data->dma_channels[channel].user_data = cfg->user_data;
+	dev_data->dma_channels[channel].cyclic = cfg->cyclic;
+
+	if (cfg->cyclic) {
+		return sam_xdmac_cyclic_setup(dev, channel, cfg);
+	}
 
 	(void)memset(&transfer_cfg, 0, sizeof(transfer_cfg));
 	transfer_cfg.sa = cfg->head_block->source_address;
@@ -322,10 +508,18 @@ static int sam_xdmac_transfer_reload(const struct device *dev, uint32_t channel,
 				     uint32_t src, uint32_t dst, size_t size)
 {
 	struct sam_xdmac_dev_data *const dev_data = dev->data;
-	struct sam_xdmac_transfer_config transfer_cfg = {
+	struct sam_xdmac_channel_cfg *chan = &dev_data->dma_channels[channel];
+	struct sam_xdmac_transfer_config transfer_cfg;
+
+	if (chan->cyclic) {
+		return sam_xdmac_lli_append(dev, channel, src, dst,
+					    size >> chan->data_size);
+	}
+
+	transfer_cfg = (struct sam_xdmac_transfer_config){
 		.sa = src,
 		.da = dst,
-		.ublen = size >> dev_data->dma_channels[channel].data_size,
+		.ublen = size >> chan->data_size,
 	};
 
 	return sam_xdmac_transfer_configure(dev, channel, &transfer_cfg);
@@ -569,10 +763,17 @@ static DEVICE_API(dma, sam_xdmac_driver_api) = {
 			    sam_xdmac_isr, DEVICE_DT_INST_GET(n), 0);		\
 	}									\
 										\
+	static struct sam_xdmac_linked_list_desc_view1				\
+		dma##n##_lli_pool[(DMA_CHANNELS_MAX + 1) *			\
+				  CONFIG_DMA_SAM_XDMAC_LLI_QUEUE_SIZE]		\
+		__aligned(XDMAC_LLI_ALIGN);					\
+										\
 	static const struct sam_xdmac_dev_cfg dma##n##_config = {		\
 		.regs = (Xdmac *)DT_INST_REG_ADDR(n),				\
 		.irq_config = dma##n##_irq_config,				\
 		.clock_cfg = SAM_DT_INST_CLOCK_PMC_CFG(n),			\
+		.lli_pool = dma##n##_lli_pool,					\
+		.lli_queue_size = CONFIG_DMA_SAM_XDMAC_LLI_QUEUE_SIZE,		\
 		.irq_id = DT_INST_IRQN(n),					\
 	};									\
 										\

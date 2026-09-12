@@ -59,6 +59,7 @@ The lens instructions live in this same folder. Read each lens file and review t
 15. `rgallaispou-impersonator.md` — only if the diff touches audio codec or DMIC drivers, their bindings, or the audio API headers
 16. `TomasBarakNXP-impersonator.md` — only if the diff touches audio code, or any NXP board/driver that carries an audio codec node
 17. `kartben-impersonator.md` — advisory, whenever the diff touches DT bindings, Kconfig help text, doc/, samples/, boards/, or any new driver; he reviews across the whole tree
+18. `JarmouniA-impersonator.md` — advisory, whenever the diff touches samples/ (metadata, tests.yaml, README.rst), dts/bindings/, board/shield DTS, or display/cache code; he is a Display maintainer and a Samples + Devicetree Bindings collaborator
 
 **Conditionally apply (DMA only):**
 18. `mcuxted-impersonator.md` — only if the diff touches DMA code (drivers/dma/, tests/drivers/dma/, dts/bindings/dma/, include/zephyr/drivers/dma/)
@@ -153,3 +154,4 @@ The review lenses live next to this skill, in the same folder (peer sub-skills, 
 - `Peterson-Brett-impersonator.md` — I2S/audio reviewer lens (drivers/i2s, drivers/audio)
 - `mariopaja-impersonator.md` — I2S/audio codec reviewer lens (drivers/i2s, drivers/audio)
 - `kartben-impersonator.md` — tree-wide style/DT/doc reviewer lens (advisory)
+- `JarmouniA-impersonator.md` — display/DT-bindings/Samples reviewer lens (advisory)

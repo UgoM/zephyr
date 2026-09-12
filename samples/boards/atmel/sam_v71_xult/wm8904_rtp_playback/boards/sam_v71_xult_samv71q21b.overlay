@@ -1,0 +1,51 @@
+/*
+ * Copyright The Zephyr Project Contributors
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+/* PLLACK 384 MHz through the master clock prescaler of 2. Kconfig programs the
+ * prescaler and this is the same frequency stated for the drivers that compute
+ * their dividers from the device tree.
+ */
+&cpu0 {
+	clock-frequency = <192000000>;
+};
+
+/* The codec master clock is PCK2, which the application programs to 3.072 MHz. */
+&audio_codec {
+	/*
+	 * No MCLK clock source is available in DT here, so the driver derives
+	 * MCLK as frame_clk_freq * fs-ratio: 24000 * 128 = 3.072 MHz.
+	 */
+	fs-ratio = <128>;
+};
+
+/*
+ * Transmit data reaches the codec on PD26, not on PB5. The receive clock and
+ * frame pins are left out because the codec drives both clocks and the receiver
+ * takes them from TK.
+ *
+ * PA18 carries PCK2 to the codec master clock input. It belongs to the PMC
+ * rather than to the SSC, but the PMC binding has no pinctrl properties, so it
+ * rides along in the state the SSC applies at init.
+ */
+&ssc_default {
+	group1 {
+		pinmux = <PA10C_SSC_RD>,
+			 <PB0D_SSC_TF>,
+			 <PB1D_SSC_TK>,
+			 <PD26B_SSC_TD>,
+			 <PA18B_PMC_PCK2>;
+	};
+};
+
+/*
+ * The SSC has no transmit FIFO, so the DMA reload at a block boundary has two
+ * word periods to complete before the transmitter reports an underrun, which
+ * the driver latches as a fatal error. The Ethernet interrupts default to the
+ * same priority as the DMA controller and cannot be preempted by it, so they
+ * are moved down.
+ */
+&gmac {
+	interrupts = <39 2>, <66 2>, <67 2>, <71 2>, <72 2>, <73 2>;
+};

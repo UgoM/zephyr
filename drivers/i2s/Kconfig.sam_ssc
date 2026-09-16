@@ -22,6 +22,13 @@ config I2S_SAM_SSC_RX_BLOCK_COUNT
 config I2S_SAM_SSC_TX_BLOCK_COUNT
 	int "TX queue length"
 	default 4
+	help
+	  Number of TX data blocks the driver keeps queued for the DMA ring.
+
+	  The value must not exceed DMA_SAM_XDMAC_LLI_QUEUE_SIZE - 1: the DMA
+	  ring reserves one descriptor as a closing sentinel, so only that many
+	  blocks can be in flight at once. More queued blocks are only deferred,
+	  never dropped, but larger queues need a matching DMA ring depth.
 
 config I2S_SAM_SSC_0_PIN_RF_EN
 	bool "RF pin enabled"

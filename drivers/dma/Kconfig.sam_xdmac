@@ -9,3 +9,17 @@ config DMA_SAM_XDMAC
 	depends on DT_HAS_ATMEL_SAM_XDMAC_ENABLED
 	help
 	  Enable Atmel SAM MCU Family Direct Memory Access (XDMAC) driver.
+
+if DMA_SAM_XDMAC
+
+config DMA_SAM_XDMAC_LLI_QUEUE_SIZE
+	int "Cyclic transfer descriptor queue size"
+	default 5 if I2S_SAM_SSC
+	default 2
+	range 2 32
+	help
+	  Number of linked-list descriptors reserved per channel for cyclic
+	  transfers. One slot is always the closing descriptor, so at most
+	  this value minus one blocks can be in flight.
+
+endif # DMA_SAM_XDMAC

@@ -1,0 +1,14 @@
+sample:
+  name: USB Audio 2 DAC sample
+tests:
+  sample.usb.uac2_dac:
+    depends_on:
+      - usbd
+      - dac
+    tags:
+      - usb
+      - dac
+      - mpipe
+    platform_allow:
+      - nucleo_h745zi_q/stm32h745xx/m7
+    harness: TBD

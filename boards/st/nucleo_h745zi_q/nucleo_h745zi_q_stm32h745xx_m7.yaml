@@ -22,4 +22,6 @@ supported:
   - netif:eth
   - spi
   - usb_device
+  - dac
+  - dma
 vendor: st

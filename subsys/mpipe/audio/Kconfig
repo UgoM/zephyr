@@ -1,0 +1,42 @@
+#
+# SPDX-FileCopyrightText: Copyright The Zephyr Project Contributors
+# SPDX-License-Identifier: Apache-2.0
+#
+
+config MPIPE_AUDIO
+	bool "Audio elements"
+	depends on AUDIO_CODEC
+	help
+	  Elements bridging a pipeline to the audio drivers: a sink playing
+	  PCM buffers through a Zephyr audio codec device.
+
+if MPIPE_AUDIO
+
+config MPIPE_AUDIO_DAC_SINK
+	bool "Audio codec sink element"
+	help
+	  Enable the dac_sink element which writes the PCM buffers reaching
+	  the end of a pipeline to an audio codec device. The codec paces
+	  the stream, so a full codec holds the producer.
+
+config MPIPE_AUDIO_DAC_SINK_BLOCK_SIZE
+	int "Codec block size in bytes"
+	range 2 32766
+	default 96
+	depends on MPIPE_AUDIO_DAC_SINK
+	help
+	  Size of one codec block, which is also the largest payload one
+	  write can carry. The default holds one millisecond of mono 16-bit
+	  48 kHz audio, matching one USB isochronous packet.
+
+config MPIPE_AUDIO_DAC_SINK_TIMEOUT_MS
+	int "How long to wait for a free codec block"
+	range 1 10000
+	default 100
+	depends on MPIPE_AUDIO_DAC_SINK
+	help
+	  A buffer whose block does not come free within this delay is
+	  dropped rather than held, which keeps a stopped codec from
+	  blocking the pipeline thread for good.
+
+endif # MPIPE_AUDIO
